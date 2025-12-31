@@ -18,8 +18,21 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ========== MIDDLEWARE ==========
+const allowedOrigins = process.env.ALLOWED_ORIGINS
+  ? process.env.ALLOWED_ORIGINS.split(",")
+  : [];
+
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
+  origin: function (origin, callback) {
+    // allow server-to-server & Postman
+    if (!origin) return callback(null, true);
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(new Error("CORS not allowed"));
+    }
+  },
   credentials: true
 }));
 
@@ -28,16 +41,18 @@ app.use(express.urlencoded({ extended: true }));
 
 // Session configuration
 app.use(session({
-  secret: process.env.SECRET_KEY || 'fallback-secret-key-change-in-production',
+  name: "royalphotowaala.sid",
+  secret: process.env.SECRET_KEY || "fallback-secret-key-change-in-production",
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: true,          // REQUIRED on Render (HTTPS)
     httpOnly: true,
-    sameSite: 'lax',
-    maxAge: 2 * 60 * 60 * 1000 // 2 hours
+    sameSite: "none",      // REQUIRED for Vercel ↔ Render
+    maxAge: 2 * 60 * 60 * 1000
   }
 }));
+
 
 // Serve frontend files (from root frontend folder)
 app.use(express.static(path.join(__dirname, '..', 'frontend')));
@@ -688,6 +703,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
