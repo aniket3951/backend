@@ -215,9 +215,11 @@ function loginRequiredApi(req, res, next) {
 
 // ========== ROUTES ==========
 
-// Home page (served from frontend folder)
 app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'frontend', 'index.html'));
+  res.json({
+    status: "Backend running successfully 🚀",
+    service: "Royal Photowaala API"
+  });
 });
 
 // Terms and Privacy pages
@@ -686,6 +688,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
