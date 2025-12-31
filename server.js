@@ -156,7 +156,6 @@ async function initDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
     // Create reviews table
     await query(`
       CREATE TABLE IF NOT EXISTS reviews (
@@ -168,6 +167,7 @@ async function initDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    await createGalleryTable();
     
     // Create default admin user if it doesn't exist
     const adminCheck = await query('SELECT * FROM admin_users WHERE username = $1', ['admin']);
@@ -639,8 +639,20 @@ process.on('SIGTERM', () => {
   pool.end(() => {
     console.log('PostgreSQL pool closed');
     process.exit(0);
-  });
+  }); 
 });
+
+async function createGalleryTable() {
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gallery (
+      id SERIAL PRIMARY KEY,
+      image_url TEXT NOT NULL,
+      caption TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  console.log("✅ Gallery table ready");
+}
 
 // ========== START SERVER ==========
 async function startServer() {
@@ -674,5 +686,6 @@ async function startServer() {
 }
 
 startServer();
+
 
 
