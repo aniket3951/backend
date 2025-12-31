@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Dashboard - Royal Photowaala</title>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/dashboard_new.css" />
+  <!-- SortableJS for drag and drop -->
+  <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+</head>
+
+<body>
+  <aside class="sidebar">
+    <div class="brand">📸 Royal Photowaala</div>
+    <nav>
+      <ul>
+        <li><a href="#bookings" class="nav-link active" data-section="bookings">📅 Bookings</a></li>
+        <li><a href="#gallery" class="nav-link" data-section="gallery">🖼️ Gallery</a></li>
+        <li><a href="#logo" class="nav-link" data-section="logo">🎨 Logo</a></li>
+        <li><a href="#home-images" class="nav-link" data-section="home-images">🏠 Home Images</a></li>
+        <li><a href="#reviews" class="nav-link" data-section="reviews">⭐ Reviews</a></li>
+        <li><a href="/" class="view-website-link" target="_blank">🌐 View Website</a></li>
+        <li><a href="/logout" class="logout-link">🚪 Logout</a></li>
+      </ul>
+    </nav>
+  </aside>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Header -->
+    <header class="dashboard-header">
+      <div>
+        <h1>Admin Dashboard</h1>
+        <p class="subtitle">Manage your photography business</p>
+      </div>
+      <div class="header-actions">
+        <button class="toggle-mode" aria-label="Toggle dark mode">🌙 Dark Mode</button>
+      </div>
+    </header>
+
+    <!-- Statistics Cards -->
+    <section class="stats-section">
+      <div class="stat-card">
+        <div class="stat-icon">📊</div>
+        <div class="stat-info">
+          <h3 id="totalBookings">0</h3>
+          <p>Total Bookings</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">⏳</div>
+        <div class="stat-info">
+          <h3 id="pendingBookings">0</h3>
+          <p>Pending</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">✅</div>
+        <div class="stat-info">
+          <h3 id="confirmedBookings">0</h3>
+          <p>Confirmed</p>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-icon">🖼️</div>
+        <div class="stat-info">
+          <h3 id="totalImages">0</h3>
+          <p>Gallery Images</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Bookings Section -->
+    <section id="bookings" class="content-section active">
+      <div class="section-header">
+        <h2>📅 Booking Requests (Last 3 Months)</h2>
+        <div class="filter-controls">
+          <select id="statusFilter" class="filter-select">
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="cancelled">Cancelled</option>
+            <option value="completed">Completed</option>
+          </select>
+          <button id="archiveBookings" class="btn-warning" title="Archive bookings older than 3 months">📦 Archive Old</button>
+          <button id="refreshBookings" class="btn-secondary">🔄 Refresh</button>
+        </div>
+      </div>
+      
+      <div class="table-container">
+        <table class="bookings-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Package</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="bookingsTableBody">
+            <tr>
+              <td colspan="8" class="loading-cell">Loading bookings...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Gallery Section -->
+    <section id="gallery" class="content-section">
+      <div class="section-header">
+        <h2>🖼️ Best Captures Gallery</h2>
+      </div>
+      
+      <div class="upload-form">
+        <form id="addImageForm">
+          <label for="imageFile" class="file-label">
+            <span>📁 Choose Image</span>
+            <input type="file" id="imageFile" name="imageFile" accept="image/*" required />
+          </label>
+          <button type="submit" class="btn-primary">Add to Gallery</button>
+        </form>
+      </div>
+
+      <div class="image-grid" id="galleryImages">
+        <p class="empty-state">No images yet. Upload your first image!</p>
+      </div>
+    </section>
+
+    <!-- Logo Section -->
+    <section id="logo" class="content-section">
+      <div class="section-header">
+        <h2>🎨 Website Logo</h2>
+      </div>
+      
+      <div class="upload-form">
+        <form id="addLogoForm">
+          <label for="logoFile" class="file-label">
+            <span>📁 Choose Logo</span>
+            <input type="file" id="logoFile" name="logoFile" accept="image/*" required />
+          </label>
+          <button type="submit" class="btn-primary">Update Logo</button>
+        </form>
+      </div>
+
+      <div class="logo-preview">
+        <h3>Current Logo:</h3>
+        <img id="logoPreview" alt="Website Logo" style="display: none;" />
+        <p id="noLogo" class="empty-state">No logo uploaded yet</p>
+      </div>
+    </section>
+
+    <!-- Home Images Section -->
+    <section id="home-images" class="content-section">
+      <div class="section-header">
+        <h2>🏠 Home Page Slideshow</h2>
+      </div>
+      
+      <div class="upload-form">
+        <form id="addHomeForm">
+          <label for="homeFile" class="file-label">
+            <span>📁 Choose Image</span>
+            <input type="file" id="homeFile" name="homeFile" accept="image/*" required />
+          </label>
+          <button type="submit" class="btn-primary">Add Home Image</button>
+        </form>
+      </div>
+
+      <div class="image-grid" id="homeImages">
+        <p class="empty-state">No home images yet. Upload your first image!</p>
+      </div>
+    </section>
+
+    <!-- Reviews Section -->
+    <section id="reviews" class="content-section">
+      <div class="section-header">
+        <h2>⭐ Customer Reviews</h2>
+        <div class="filter-controls">
+          <select id="reviewStatusFilter" class="filter-select">
+            <option value="pending">Pending Approval</option>
+            <option value="approved">Approved</option>
+            <option value="all">All Reviews</option>
+          </select>
+          <button id="refreshReviews" class="btn-secondary">🔄 Refresh</button>
+        </div>
+      </div>
+      
+      <div class="table-container">
+        <table class="reviews-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Rating</th>
+              <th>Comment</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="reviewsTableBody">
+            <tr>
+              <td colspan="7" class="loading-cell">Loading reviews...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Toast Notification -->
+  <div class="toast" id="toast" role="alert" aria-live="polite"></div>
+
+  <!-- Booking Details Modal -->
+  <div class="modal" id="bookingModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Booking Details</h3>
+        <button class="modal-close" aria-label="Close modal">&times;</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+      </div>
+    </div>
+  </div>
+
+  <!-- External JavaScript -->
+  <script src="/static/dashboard_new.js"></script>
+</body>
+</html>
+
+

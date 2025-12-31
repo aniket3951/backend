@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin Login | Royal Photowaala</title>
+
+<!-- ===== STYLING ===== -->
+<style>
+  /* ===============================
+     Global Styles
+     =============================== */
+  @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap');
+
+  * {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+    font-family: 'Poppins', sans-serif;
+  }
+
+  body {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    background: #0d0d0d; /* dark background */
+    color: white;
+  }
+
+  /* ===============================
+     Login Container Styling
+     =============================== */
+  .login-container {
+    background: rgba(20, 20, 20, 0.95); /* frosted dark panel */
+    backdrop-filter: blur(10px);
+    padding: 40px;
+    border-radius: 15px;
+    box-shadow: 0 8px 30px rgba(0,0,0,0.7);
+    width: 350px;
+    text-align: center;
+    transition: all 0.4s ease;
+  }
+
+  .login-container:hover {
+    box-shadow: 0 12px 40px rgba(0,0,0,0.9);
+    transform: translateY(-5px);
+  }
+
+  .login-container h2 {
+    margin-bottom: 25px;
+    font-size: 26px;
+    font-weight: 700;
+    color: #ff8a65; /* highlight color matching site */
+    letter-spacing: 1px;
+  }
+
+  /* ===============================
+     Input Field Styling
+     =============================== */
+  .input-group {
+    position: relative;
+    margin-bottom: 25px;
+  }
+
+  .input-group input {
+    width: 100%;
+    padding: 12px 15px;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 10px;
+    color: white;
+    font-size: 16px;
+    outline: none;
+    transition: background 0.3s, border-color 0.3s;
+  }
+
+  /* Focus effect */
+  .input-group input:focus {
+    background: rgba(255,255,255,0.1);
+    border-color: #ff8a65;
+    box-shadow: 0 0 8px rgba(255,138,101,0.7);
+  }
+
+  /* Floating label */
+  .input-group label {
+    position: absolute;
+    left: 15px;
+    top: 12px;
+    color: rgba(255,255,255,0.6);
+    transition: 0.3s;
+    pointer-events: none;
+  }
+
+  .input-group input:focus + label,
+  .input-group input:not(:placeholder-shown) + label {
+    top: -12px;
+    left: 10px;
+    font-size: 12px;
+    background: rgba(20,20,20,0.9);
+    padding: 0 5px;
+    border-radius: 5px;
+    color: #ff8a65;
+  }
+
+  /* ===============================
+     Login Button Styling
+     =============================== */
+  button {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 10px;
+    background: linear-gradient(45deg, #ff6f61, #ff8a65, #ff7f50);
+    background-size: 200% 200%;
+    color: white;
+    font-size: 18px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-position 0.4s ease, transform 0.2s ease;
+    box-shadow: 0 4px 10px rgba(255,111,97,0.4);
+  }
+
+  button:hover {
+    background-position: 100% 0%;
+    transform: scale(1.03);
+  }
+
+  /* ===============================
+     Error and Success Messages
+     =============================== */
+  .error {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ff4d4d;
+    padding: 8px;
+    border-radius: 8px;
+    margin-top: 10px;
+    font-size: 14px;
+    display: none;
+  }
+
+  .success {
+    background: rgba(16, 185, 129, 0.3);
+    color: #34d399;
+    padding: 8px;
+    border-radius: 8px;
+    margin-top: 10px;
+    font-size: 14px;
+    display: none;
+  }
+
+  /* ===============================
+     Footer Styling
+     =============================== */
+  footer {
+    margin-top: 25px;
+    font-size: 14px;
+    color: rgba(255,255,255,0.6);
+  }
+
+  /* ===============================
+     Responsive Styling
+     =============================== */
+  @media (max-width: 400px) {
+    .login-container {
+      width: 90%;
+      padding: 25px;
+    }
+  }
+</style>
+</head>
+
+<body>
+  <!-- ===============================
+       LOGIN CONTAINER
+       =============================== -->
+  <div class="login-container">
+    <h2>Admin Login</h2>
+
+    <!-- Login Form -->
+    <form id="loginForm" method="POST" action="/admin_login">
+      <!-- Username Field -->
+      <div class="input-group">
+        <input type="text" id="username" name="username" placeholder=" " required>
+        <label for="username">Username</label>
+      </div>
+
+      <!-- Password Field -->
+      <div class="input-group">
+        <input type="password" id="password" name="password" placeholder=" " required>
+        <label for="password">Password</label>
+      </div>
+
+      <!-- Login Button -->
+      <button type="submit">Login</button>
+
+      <!-- Error and Success Messages -->
+      <div class="error" id="errorBox"></div>
+      <div class="success" id="successBox"></div>
+    </form>
+
+    <!-- Footer -->
+    <footer>© 2025 Royal Photowaala | Admin Access Only</footer>
+  </div>
+
+</body>
+</html>
+
+
