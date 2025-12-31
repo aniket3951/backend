@@ -491,21 +491,21 @@ app.delete('/api/bookings/:id', loginRequiredApi, async (req, res) => {
 });
 
 // Get approved reviews
-app.get('/api/reviews', async (req, res) => {
+app.get("/api/reviews", async (req, res) => {
   try {
-    const result = await query(
-      `SELECT name, rating, comment 
-       FROM reviews 
-       WHERE approved = 1 
-       ORDER BY created_at DESC`
+    const result = await pool.query(
+      "SELECT name, rating, comment FROM reviews ORDER BY created_at DESC"
     );
-    
-    return res.json(result.rows);
-  } catch (error) {
-    console.error('Error fetching reviews:', error);
-    return res.status(500).json({ success: false, error: 'Failed to fetch reviews' });
+    res.json(result.rows);
+  } catch (err) {
+    console.error("❌ Reviews error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch reviews"
+    });
   }
 });
+
 
 // Submit review
 app.post('/api/reviews', async (req, res) => {
@@ -703,6 +703,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
