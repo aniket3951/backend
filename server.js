@@ -20,7 +20,10 @@ const PORT = process.env.PORT || 5000;
 // ========== MIDDLEWARE ==========
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
-  : [];
+  : [
+      "https://royalphotowaala-3zo7cdjzj-aniket-vitthal-kumbhars-projects.vercel.app/",
+      "https://yourdomain.com"
+    ];
 
 app.use(cors({
   origin: function (origin, callback) {
@@ -30,16 +33,12 @@ app.use(cors({
       return callback(null, true);
     }
 
-    return callback(null, false);
+    return callback(new Error("Not allowed by CORS"));
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
   credentials: true
 }));
-
-// ✅ REQUIRED for preflight (VERY IMPORTANT)
-app.options("*", cors());
-
 
 // VERY IMPORTANT: allow preflight
 app.options("*", cors());
@@ -54,7 +53,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: true,          // REQUIRED on Render (HTTPS)
+    secure: process.env.NODE_ENV === "production",
     httpOnly: true,
     sameSite: "none",      // REQUIRED for Vercel ↔ Render
     maxAge: 2 * 60 * 60 * 1000
@@ -502,7 +501,10 @@ app.delete('/api/bookings/:id', loginRequiredApi, async (req, res) => {
 app.get("/api/reviews", async (req, res) => {
   try {
     const result = await pool.query(
-      "SELECT name, rating, comment FROM reviews ORDER BY created_at DESC"
+      SELECT name, rating, comment
+      FROM reviews
+      WHERE approved = 1
+        ORDER BY created_at DESC;
     );
     res.json(result.rows);
   } catch (err) {
@@ -711,6 +713,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
