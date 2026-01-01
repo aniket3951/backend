@@ -500,12 +500,13 @@ app.delete('/api/bookings/:id', loginRequiredApi, async (req, res) => {
 // Get approved reviews
 app.get("/api/reviews", async (req, res) => {
   try {
-    const result = await pool.query(
-      SELECT name, rating, comment
-      FROM reviews
-      WHERE approved = 1
-        ORDER BY created_at DESC;
-    );
+    const result = await pool.query(`
+    SELECT name, rating, comment
+    FROM reviews
+    WHERE approved = 1
+    ORDER BY created_at DESC
+    `);
+
     res.json(result.rows);
   } catch (err) {
     console.error("❌ Reviews error:", err);
@@ -713,6 +714,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
