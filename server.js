@@ -321,6 +321,20 @@ app.get('/logout', (req, res) => {
 // Health check
 app.get('/api/health', async (req, res) => {
   try {
+
+    
+// ✅ INSERT /api/fix-db HERE ⬇️ (line 235)
+app.post('/api/fix-db', async (req, res) => {
+  try {
+    await query('ALTER TABLE reviews ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT FALSE');
+    await query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS email VARCHAR(255)');
+    console.log('✅ DB schema fixed via API');
+    res.json({ success: true, message: 'Database schema fixed!' });
+  } catch (err) {
+    console.error('❌ DB fix error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
     // Test database connection
     await query('SELECT NOW()');
     res.json({ 
@@ -722,6 +736,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
