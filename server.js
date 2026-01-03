@@ -435,9 +435,22 @@ app.post('/api/book', async (req, res) => {
   }
 
  try {
-  const result = await query(...);
-
-  const bookingId = result.rows[0].id;
+const result = await query(
+  `INSERT INTO bookings (name, email, phone, package, date, details, status)
+   VALUES ($1, $2, $3, $4, $5, $6, $7)
+   RETURNING id`,
+  [
+    trimmedName,
+    trimmedEmail,
+    trimmedPhone,
+    trimmedPackage,
+    trimmedDate,
+    trimmedDetails,
+    'pending'
+  ]
+);
+   
+   const bookingId = result.rows[0].id;
 
   const eventDate = new Date(trimmedDate).toLocaleDateString('en-GB', {
     day: 'numeric',
@@ -766,6 +779,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
