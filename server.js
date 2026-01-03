@@ -353,65 +353,6 @@ app.post('/api/fix-db', async (req, res) => {
   }
 });
 
-// ✅ FIXED Booking API - Handles missing columns gracefully
-app.post('/api/book', async (req, res) => {  
-  const { name, email, phone, package: pkg, date, details } = req.body || {};
-  
-  const trimmedName = (name || '').trim();
-  const trimmedEmail = (email || '').trim();
-  const trimmedPhone = (phone || '').trim();
-  const trimmedPackage = (pkg || '').trim();
-  const trimmedDate = (date || '').trim();
-  const trimmedDetails = (details || '').trim();
-  
-  // Validation (email optional now)
-  if (!trimmedName || !trimmedPhone || !trimmedPackage || !trimmedDate) {
-    return res.status(400).json({ success: false, error: 'Name, phone, package, and date required' });
-  }
-  
-  if (trimmedName.length < 2) {
-    return res.status(400).json({ success: false, error: 'Name must be at least 2 characters' });
-  }
-  
-  if (trimmedEmail && !validateEmail(trimmedEmail)) {
-    return res.status(400).json({ success: false, error: 'Invalid email format' });
-  }
-  
-  if (!validatePhone(trimmedPhone)) {
-    return res.status(400).json({ success: false, error: 'Phone must be 10 digits' });
-  }
-  
-  try {
-    // ✅ SAFE INSERT - ignores missing columns
-    const result = await query(
-      `INSERT INTO bookings (name, phone, package, date, details, status) 
-       VALUES ($1, $2, $3, $4, $5, $6) 
-       RETURNING id, created_at`,
-      [trimmedName, trimmedPhone, trimmedPackage, trimmedDate, trimmedDetails, 'pending']
-    );
-    
-    const bookingId = result.rows[0].id;
-    
-    // WhatsApp message (email optional)
-    const eventDate = new Date(trimmedDate).toLocaleDateString('en-GB', {
-      day: 'numeric', month: 'long', year: 'numeric'
-    });
-    
-    const msg = `🌟 *NEW BOOKING* 🌟\n\n👤 ${trimmedName}\n📱 ${trimmedPhone}\n📦 ${trimmedPackage}\n📅 ${eventDate}\n\n${trimmedDetails || 'No details'}`;
-    
-    const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
-    
-    res.json({
-      success: true,
-      booking_id: bookingId,
-      wa_link: waLink || 'Admin WhatsApp not configured'
-    });
-  } catch (error) {
-    console.error('❌ Booking error:', error);
-    res.status(500).json({ success: false, error: 'Booking failed - try again' });
-  }
-});
-
 app.post('/api/book', async (req, res) => {
   const { name, email, phone, package: pkg, date, details } = req.body || {};
 
@@ -779,6 +720,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
