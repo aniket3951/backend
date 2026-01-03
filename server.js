@@ -1,8 +1,11 @@
 /**
  * Royal Photowaala - Express.js Backend Server
  * PostgreSQL Database Backend
+ * 
+ * @version 2.0.0
+ * @license MIT
  */
-
+// ========== IMPORTS & CONFIGURATION ==========
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -13,109 +16,173 @@ const { Pool } = require('pg');
 const cron = require('node-cron');
 const ExcelJS = require('exceljs');
 const fs = require('fs').promises;
-
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+const mongoSanitize = require('express-mongo-sanitize');
+const xss = require('xss-clean');
+const hpp = require('hpp');
+const compression = require('compression');
+const morgan = require('morgan');
+const { body, validationResult } = require('express-validator');
 const app = express();
 const PORT = process.env.PORT || 5000;
-
-// ========== MIDDLEWARE ==========
-const allowedOrigins = process.env.ALLOWED_ORIGINS
-  ? process.env.ALLOWED_ORIGINS.split(",")
-  : [
-      "https://royalphotowaala-3zo7cdjzj-aniket-vitthal-kumbhars-projects.vercel.app",
-      "https://yourdomain.com"
-    ];
-
-// ✅ STEP 1: Preflight OPTIONS FIRST (fixes "Failed to fetch")
-app.options("*", cors());
-
-// ✅ STEP 2: Main CORS middleware
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow non-browser requests (mobile apps, etc.)
-    if (!origin) return callback(null, true);
-
-    if (allowedOrigins.includes(origin)) {
-      return callback(null, true);
-    }
-
-    // Log failed origins for debugging
-    console.log("❌ CORS blocked origin:", origin);
-    return callback(new Error("Not allowed by CORS"));
-  },
-  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
+// ========== GLOBAL MIDDLEWARE ==========
+// Set security HTTP headers
+app.use(helmet());
+// Development logging
+if (process.env.NODE_ENV === 'development') {
+  app.use(morgan('dev'));
+}
+// Limit requests from same IP
+const limiter = rateLimit({
+  max: 100, // 100 requests per windowMs
+  windowMs: 60 * 60 * 1000, // 1 hour
+  message: 'Too many requests from this IP, please try again in an hour!'
+});
+app.use('/api', limiter);
+// Body parser, reading data from body into req.body
+app.use(express.json({ limit: '10kb' }));
+app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+// Data sanitization against NoSQL query injection
+app.use(mongoSanitize());
+// Data sanitization against XSS
+app.use(xss());
+// Prevent parameter pollution
+app.use(hpp({
+  whitelist: ['duration', 'ratingsQuantity', 'ratingsAverage', 'maxGroupSize', 'difficulty', 'price']
 }));
-
-// ✅ STEP 3: Body parsers
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// ✅ STEP 4: Session (Vercel ↔ Render cross-site FIXED)
-app.use(session({
-  name: "royalphotowaala.sid",
-  secret: process.env.SECRET_KEY || "fallback-secret-key-change-in-production",
+// Enable CORS with proper configuration
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+// Compress all responses
+app.use(compression());
+// Session configuration
+const sessionConfig = {
+  secret: process.env.SECRET_KEY || 'fallback-secret-key-change-in-production',
   resave: false,
   saveUninitialized: false,
+  name: 'royalphotowaala.sid',
   cookie: {
-    secure: process.env.NODE_ENV === "production",  // HTTPS only in prod
+    secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    sameSite: "none",           // ✅ REQUIRED: Vercel ↔ Render
-    maxAge: 2 * 60 * 60 * 1000  // 2 hours
-  }
-}));
-
-
-// Serve frontend files (from root frontend folder)
-app.use(express.static(path.join(__dirname, '..', 'frontend')));
-
-// Serve static files for admin dashboard
-app.use('/static', express.static(path.join(__dirname, 'static')));
-
-// Serve templates for admin pages
-app.use('/templates', express.static(path.join(__dirname, 'templates')));
-
-// ========== POSTGRESQL DATABASE SETUP ==========
-if (!process.env.DATABASE_URL) {
-  console.error('❌ ERROR: DATABASE_URL environment variable is required!');
-  console.error('Please set DATABASE_URL in your .env file');
+    sameSite: 'strict',
+    maxAge: 2 * 60 * 60 * 1000, // 2 hours
+    domain: process.env.COOKIE_DOMAIN || undefined,
+    path: '/'
+  },
+  rolling: true,
+  unset: 'destroy'
+};
+// Trust first proxy if behind one (e.g., Nginx, Heroku)
+if (process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+  sessionConfig.cookie.secure = true;
+  sessionConfig.cookie.sameSite = 'none';
+}
+app.use(session(sessionConfig));
+// ========== DATABASE CONFIGURATION ==========
+// Validate required environment variables
+const requiredEnvVars = ['DATABASE_URL', 'SECRET_KEY'];
+const missingEnvVars = requiredEnvVars.filter(env => !process.env[env]);
+if (missingEnvVars.length > 0) {
+  console.error('❌ ERROR: Missing required environment variables:');
+  missingEnvVars.forEach(env => console.error(`   - ${env}`));
   process.exit(1);
 }
-
-// Create PostgreSQL connection pool
+// Create PostgreSQL connection pool with enhanced configuration
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  ssl: process.env.NODE_ENV === 'production' ? { 
+    rejectUnauthorized: process.env.DB_REJECT_UNAUTHORIZED !== 'false'
+  } : false,
+  max: process.env.DB_MAX_CONNECTIONS || 20,
+  idleTimeoutMillis: process.env.DB_IDLE_TIMEOUT_MS || 30000,
+  connectionTimeoutMillis: process.env.DB_CONNECTION_TIMEOUT_MS || 2000,
+  statement_timeout: process.env.DB_STATEMENT_TIMEOUT_MS || 10000,
+  query_timeout: process.env.DB_QUERY_TIMEOUT_MS || 15000,
+  application_name: 'royal-photowaala-api',
+  maxUses: 7500,
+  allowExitOnIdle: true
 });
-
-// Test database connection
+// Database connection event handlers
 pool.on('connect', () => {
-  console.log('✅ Connected to PostgreSQL database');
+  if (process.env.NODE_ENV !== 'test') {
+    console.log('✅ Connected to PostgreSQL database');
+  }
 });
-
 pool.on('error', (err) => {
   console.error('❌ Unexpected PostgreSQL error:', err);
-  process.exit(-1);
+  if (process.env.NODE_ENV === 'production') {
+    console.error('Database connection error. Attempting to reconnect...');
+  } else {
+    process.exit(-1);
+  }
 });
-
-// Database query helper functions
-async function query(text, params) {
+// Graceful shutdown handler
+process.on('SIGTERM', async () => {
+  console.log('SIGTERM received. Closing database connections...');
+  await pool.end();
+  console.log('Database connections closed.');
+  process.exit(0);
+});
+// ========== HELPER FUNCTIONS ==========
+/**
+ * Executes a database query with error handling and logging
+ */
+async function query(text, params, { queryName = 'unnamed' } = {}) {
   const start = Date.now();
+  const client = await pool.connect();
+  
   try {
-    const res = await pool.query(text, params);
+    const res = await client.query({
+      text,
+      values: params,
+      name: queryName,
+      rowMode: 'array',
+      types: {
+        getTypeParser: () => (val) => val
+      }
+    });
+    
     const duration = Date.now() - start;
-    console.log('Executed query', { text, duration, rows: res.rowCount });
+    
+    if (duration > 200) {
+      console.warn(`⚠️  Slow query (${duration}ms): ${text.substring(0, 100)}...`);
+    }
+    
+    if (process.env.NODE_ENV === 'development') {
+      console.debug(`📊 Query '${queryName}' executed in ${duration}ms`);
+    }
+    
     return res;
   } catch (error) {
-    console.error('Database query error:', error);
+    console.error('❌ Database query error:', {
+      query: text,
+      params,
+      error: error.message,
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
+    
+    if (error.code) {
+      switch (error.code) {
+        case '23505': throw new Error('A record with these details already exists');
+        case '23503': throw new Error('Referenced record not found');
+        case '23502': throw new Error('Required field missing');
+        default: throw error;
+      }
+    }
+    
     throw error;
+  } finally {
+    client.release();
   }
 }
-
 // ========== WHATSAPP HELPER FUNCTIONS ==========
+let ADMIN_WHATSAPP_NUMBER = null;
 function normalizeAdminWhatsAppNumber(number, defaultCountry = '91') {
   if (!number) return null;
   const digits = String(number).replace(/\D/g, '');
@@ -124,9 +191,6 @@ function normalizeAdminWhatsAppNumber(number, defaultCountry = '91') {
   }
   return digits.length >= 10 ? digits : null;
 }
-
-let ADMIN_WHATSAPP_NUMBER = null;
-
 function initWhatsAppNumber() {
   const number = process.env.ADMIN_WHATSAPP_NUMBER || '8149003738';
   ADMIN_WHATSAPP_NUMBER = normalizeAdminWhatsAppNumber(number);
@@ -136,7 +200,6 @@ function initWhatsAppNumber() {
     console.log(`✅ Admin WhatsApp number initialized: ${ADMIN_WHATSAPP_NUMBER}`);
   }
 }
-
 function buildWhatsAppLink(targetNumber, message) {
   try {
     const target = normalizeAdminWhatsAppNumber(targetNumber) || ADMIN_WHATSAPP_NUMBER;
@@ -153,119 +216,49 @@ function buildWhatsAppLink(targetNumber, message) {
     return null;
   }
 }
-
-// ========== DATABASE INITIALIZATION ==========
-async function initDb() {
-  initWhatsAppNumber();
-  
-  try {
-    // ✅ FIXED: bookings - email optional (nullable)
-    await query(`
-      CREATE TABLE IF NOT EXISTS bookings (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255),  -- ✅ CHANGED: Removed NOT NULL
-        phone VARCHAR(20) NOT NULL,
-        package VARCHAR(255) NOT NULL,
-        date DATE NOT NULL,
-        details TEXT,
-        status VARCHAR(20) DEFAULT 'pending',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    
-    // ✅ admin_users (unchanged - perfect)
-    await query(`
-      CREATE TABLE IF NOT EXISTS admin_users (
-        id SERIAL PRIMARY KEY,
-        username VARCHAR(50) UNIQUE NOT NULL,
-        password_hash VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    
-    // ✅ FIXED: reviews - approved BOOLEAN (matches your code)
-    await query(`
-      CREATE TABLE IF NOT EXISTS reviews (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
-        comment TEXT NOT NULL,
-        approved BOOLEAN DEFAULT FALSE,  -- ✅ CHANGED: BOOLEAN not INTEGER
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
-    `);
-    
-    await createGalleryTable();
-    
-    // ✅ Default admin (unchanged - perfect)
-    const adminCheck = await query('SELECT * FROM admin_users WHERE username = $1', ['admin']);
-    if (adminCheck.rows.length === 0) {
-      const passwordHash = await bcrypt.hash('admin123', 10);
-      await query(
-        'INSERT INTO admin_users (username, password_hash) VALUES ($1, $2)',
-        ['admin', passwordHash]
-      );
-      console.log('✅ Created default admin user (admin/admin123)');
-    }
-    
-    console.log('✅ Database tables initialized successfully');
-  } catch (error) {
-    console.error('❌ Database initialization error:', error);
-    throw error;
-  }
-}
-
-// ========== VALIDATION FUNCTIONS (IMPROVED) ==========
-function validateEmail(email) {
-  if (!email) return true;  // ✅ Allow empty email
-  const pattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-  return pattern.test(email);
-}
-
-function validatePhone(phone) {
-  const cleanPhone = phone.replace(/[^0-9]/g, '');  // Remove spaces/dashes
-  return cleanPhone.length === 10;
-}
-
-// ========== AUTHENTICATION MIDDLEWARE (UNCHANGED - PERFECT) ==========
+// ========== AUTHENTICATION MIDDLEWARE ==========
 function loginRequired(req, res, next) {
   if (req.session && req.session.logged_in) {
     return next();
   }
   return res.redirect('/admin_login');
 }
-
 function loginRequiredApi(req, res, next) {
   if (req.session && req.session.logged_in) {
     return next();
   }
   return res.status(401).json({ success: false, error: 'Authentication required' });
 }
-
 // ========== ROUTES ==========
-
-app.get('/', (req, res) => {
-  res.json({
-    status: "Backend running successfully 🚀",
-    service: "Royal Photowaala API"
-  });
+// Serve static files
+app.use(express.static(path.join(__dirname, 'frontend')));
+app.use('/static', express.static(path.join(__dirname, 'static')));
+app.use('/templates', express.static(path.join(__dirname, 'templates')));
+// Health check endpoint
+app.get('/api/health', async (req, res) => {
+  try {
+    await query('SELECT NOW()');
+    res.json({ 
+      status: 'ok', 
+      message: 'Royal Photowaala API is running',
+      database: 'connected',
+      whatsapp: !!ADMIN_WHATSAPP_NUMBER
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      status: 'error',
+      message: 'Database connection failed',
+      error: error.message 
+    });
+  }
 });
-
-// Terms and Privacy pages
-app.get('/terms', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'frontend', 'terms.html'));
-});
-
-app.get('/privacy', (req, res) => {
-  res.sendFile(path.join(__dirname, '..', 'frontend', 'privacy.html'));
-});
-
-// Admin login
+// Admin login routes
 app.get('/admin_login', (req, res) => {
+  if (req.session.logged_in) {
+    return res.redirect('/dashboard');
+  }
   res.sendFile(path.join(__dirname, 'templates', 'admin_login.html'));
 });
-
 app.post('/admin_login', async (req, res) => {
   const { username, password } = req.body;
   
@@ -304,135 +297,108 @@ app.post('/admin_login', async (req, res) => {
     `);
   }
 });
-
-// Dashboard// Logout END
+// Dashboard
+app.get('/dashboard', loginRequired, (req, res) => {
+  res.sendFile(path.join(__dirname, 'templates', 'dashboard_new.html'));
+});
+// Logout
 app.get('/logout', (req, res) => {
   req.session.destroy();
   res.redirect('/admin_login');
 });
-
-// ========== API ROUTES ==========
-
-// Health check + DB Fix (COMBINED)
-app.get('/api/health', async (req, res) => {
-  try {
-    // Test database connection
-    await query('SELECT NOW()');
-    
-    // ✅ AUTO-FIX SCHEMA ON HEALTH CHECK (runs every time)
-    await query('ALTER TABLE reviews ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT FALSE');
-    await query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS email VARCHAR(255)');
-    console.log('✅ Schema verified & fixed');
-    
-    res.json({ 
-      status: 'ok', 
-      message: 'Royal Photowaala API is running ✅ DB FIXED!',
-      database: 'connected',
-      schema_fixed: true,
-      whatsapp: !!ADMIN_WHATSAPP_NUMBER
-    });
-  } catch (error) {
-    console.error('Health check error:', error);
-    res.status(500).json({ 
-      status: 'error',
-      message: 'Database connection failed',
-      error: error.message 
-    });
-  }
-});
-
-// Manual DB fix (backup)
-app.post('/api/fix-db', async (req, res) => {
-  try {
-    await query('ALTER TABLE reviews ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT FALSE');
-    await query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS email VARCHAR(255)');
-    console.log('✅ Manual DB schema fixed');
-    res.json({ success: true, message: '✅ Database schema fixed forever!' });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
+// Booking API
 app.post('/api/book', async (req, res) => {
   const { name, email, phone, package: pkg, date, details } = req.body || {};
-
+  
   const trimmedName = (name || '').trim();
   const trimmedEmail = (email || '').trim();
   const trimmedPhone = (phone || '').trim();
   const trimmedPackage = (pkg || '').trim();
   const trimmedDate = (date || '').trim();
   const trimmedDetails = (details || '').trim();
-
-  if (!trimmedName || !trimmedPhone || !trimmedPackage || !trimmedDate) {
-    return res.status(400).json({ success: false, error: 'Name, phone, package, and date required' });
+  
+  // Validation
+  if (!trimmedName || !trimmedEmail || !trimmedPhone || !trimmedPackage || !trimmedDate) {
+    return res.status(400).json({ success: false, error: 'All required fields must be filled' });
   }
-
-  if (trimmedEmail && !validateEmail(trimmedEmail)) {
+  
+  if (trimmedName.length < 2) {
+    return res.status(400).json({ success: false, error: 'Name must be at least 2 characters' });
+  }
+  
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
     return res.status(400).json({ success: false, error: 'Invalid email format' });
   }
-
-  if (!validatePhone(trimmedPhone)) {
+  
+  if (!/^\d{10}$/.test(trimmedPhone)) {
     return res.status(400).json({ success: false, error: 'Phone must be 10 digits' });
   }
-
- try {
-const result = await query(
-  `INSERT INTO bookings (name, email, phone, package, date, details, status)
-   VALUES ($1, $2, $3, $4, $5, $6, $7)
-   RETURNING id`,
-  [
-    trimmedName,
-    trimmedEmail,
-    trimmedPhone,
-    trimmedPackage,
-    trimmedDate,
-    trimmedDetails,
-    'pending'
-  ]
-);
-   
-   const bookingId = result.rows[0].id;
-
-  const eventDate = new Date(trimmedDate).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'long',
-    year: 'numeric'
-  });
-
-  const packageDisplay = trimmedPackage.replace(' - ', ' - 📸 ');
-  const cleanedDetails = trimmedDetails || 'No additional details provided';
-
-  const msg =
-    "🌟 *NEW BOOKING REQUEST* 🌟\n\n" +
-    "👤 *Name*: " + trimmedName + "\n" +
-    "📧 *Email*: " + (trimmedEmail || "N/A") + "\n" +
-    "📱 *Phone*: " + trimmedPhone + "\n" +
-    "📦 *Package*: " + packageDisplay + "\n" +
-    "📅 *Event Date*: " + eventDate + "\n\n" +
-    "📝 *Event Details*:\n" +
-    cleanedDetails;
-
-  const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
-
-  return res.json({ success: true, wa_link: waLink });
-
-} catch (error) {
-  console.error(error);
-  return res.status(500).json({ success: false });
-}
-
+  
+  // Validate date
+  try {
+    const bookingDate = new Date(trimmedDate);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    if (bookingDate < today) {
+      return res.status(400).json({ success: false, error: 'Booking date must be in the future' });
+    }
+  } catch (error) {
+    return res.status(400).json({ success: false, error: 'Invalid date format' });
+  }
+  
+  try {
+    const result = await query(
+      `INSERT INTO bookings (name, email, phone, package, date, details, status) 
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [trimmedName, trimmedEmail, trimmedPhone, trimmedPackage, trimmedDate, trimmedDetails, 'pending'],
+      { queryName: 'create_booking' }
+    );
+    
+    const bookingId = result.rows[0].id;
+    
+    // Format date for WhatsApp message
+    const eventDate = new Date(trimmedDate).toLocaleDateString('en-GB', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+    
+    const packageDisplay = trimmedPackage.replace(' - ', ' - 📸 ');
+    const cleanedDetails = trimmedDetails || 'No additional details provided';
+    
+    const msg = `🌟 *NEW BOOKING REQUEST* 🌟\n\n` +
+      `👤 *Name*: ${trimmedName}\n` +
+      `📧 *Email*: ${trimmedEmail}\n` +
+      `📱 *Phone*: ${trimmedPhone}\n` +
+      `📦 *Package*: ${packageDisplay}\n` +
+      `📅 *Event Date*: ${eventDate}\n\n` +
+      `📝 *Event Details*:\n${cleanedDetails}\n\n` +
+      `⏰ *Please respond within 24 hours*\n` +
+      `✅ To confirm: Reply 'Confirm ${bookingId}'\n` +
+      `❌ To cancel: Reply 'Cancel ${bookingId}'`;
+    
+    const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
+    
+    if (!waLink) {
+      console.error(`❌ Failed to generate WhatsApp link for booking ID: ${bookingId}`);
+      return res.status(500).json({ success: false, error: 'WhatsApp link generation failed' });
+    }
+    
     return res.json({
       success: true,
       message: 'Booking request submitted successfully',
       wa_link: waLink
     });
-
   } catch (error) {
     console.error('❌ DB Insert Error:', error);
-    return res.status(500).json({ success: false, error: 'Database error occurred' });
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Database error occurred',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
-
 // Get all bookings (admin only)
 app.get('/api/bookings', loginRequiredApi, async (req, res) => {
   try {
@@ -443,16 +409,20 @@ app.get('/api/bookings', loginRequiredApi, async (req, res) => {
       `SELECT * FROM bookings 
        WHERE created_at >= $1 
        ORDER BY created_at DESC`,
-      [threeMonthsAgo]
+      [threeMonthsAgo],
+      { queryName: 'get_recent_bookings' }
     );
     
     return res.json({ success: true, bookings: result.rows });
   } catch (error) {
     console.error('Error fetching bookings:', error);
-    return res.status(500).json({ success: false, error: 'Failed to fetch bookings' });
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch bookings',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
-
 // Update booking status
 app.put('/api/bookings/:id/status', loginRequiredApi, async (req, res) => {
   const { id } = req.params;
@@ -473,15 +443,13 @@ app.put('/api/bookings/:id/status', loginRequiredApi, async (req, res) => {
     
     const booking = bookingResult.rows[0];
     
-    const msg = (
-      "BOOKING STATUS UPDATE\n" +
+    const msg = `BOOKING STATUS UPDATE\n` +
       `📅 Booking ID: ${booking.id}\n` +
       `👤 Name: ${booking.name}\n` +
       `📦 Package: ${booking.package}\n` +
       `📅 Date: ${booking.date}\n` +
       `🔄 New Status: ${status.toUpperCase()}\n` +
-      "\nPlease contact the customer if needed."
-    );
+      `\nPlease contact the customer if needed.`;
     
     const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
     
@@ -491,10 +459,13 @@ app.put('/api/bookings/:id/status', loginRequiredApi, async (req, res) => {
     });
   } catch (error) {
     console.error('❌ Booking error:', error);
-    return res.status(500).json({ success: false, error: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Server error',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
-
 // Delete booking
 app.delete('/api/bookings/:id', loginRequiredApi, async (req, res) => {
   const { id } = req.params;
@@ -504,31 +475,35 @@ app.delete('/api/bookings/:id', loginRequiredApi, async (req, res) => {
     return res.json({ success: true, message: 'Booking deleted' });
   } catch (error) {
     console.error('Error deleting booking:', error);
-    return res.status(500).json({ success: false, error: 'Failed to delete booking' });
-  }
-});
-
-// Get approved reviews
-app.get("/api/reviews", async (req, res) => {
-  try {
-    const result = await pool.query(`
-    SELECT name, rating, comment
-    FROM reviews
-    WHERE approved = 1
-    ORDER BY created_at DESC
-    `);
-
-    res.json(result.rows);
-  } catch (err) {
-    console.error("❌ Reviews error:", err);
-    res.status(500).json({
-      success: false,
-      error: "Failed to fetch reviews"
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to delete booking',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
-
-
+// Get approved reviews
+app.get('/api/reviews', async (req, res) => {
+  try {
+    const result = await query(
+      `SELECT name, rating, comment 
+       FROM reviews 
+       WHERE approved = 1 
+       ORDER BY created_at DESC`,
+      [],
+      { queryName: 'get_approved_reviews' }
+    );
+    
+    return res.json({ success: true, reviews: result.rows });
+  } catch (error) {
+    console.error('Error fetching reviews:', error);
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch reviews',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
 // Submit review
 app.post('/api/reviews', async (req, res) => {
   const { name, rating, comment } = req.body || {};
@@ -538,17 +513,32 @@ app.post('/api/reviews', async (req, res) => {
   const ratingNum = parseInt(rating, 10);
   
   if (!trimmedName || !trimmedComment || !ratingNum || ratingNum < 1 || ratingNum > 5) {
-    return res.status(400).json({ success: false, error: 'Invalid input' });
+    return res.status(400).json({ 
+      success: false, 
+      error: 'Invalid input. Please provide valid name, comment, and rating (1-5).' 
+    });
   }
   
-
-    return res.json({ success: true, message: 'Review submitted for approval' });
+  try {
+    await query(
+      'INSERT INTO reviews (name, rating, comment, approved) VALUES ($1, $2, $3, $4)',
+      [trimmedName, ratingNum, trimmedComment, false],
+      { queryName: 'create_review' }
+    );
+    
+    return res.json({ 
+      success: true, 
+      message: 'Thank you for your review! It will be visible after approval.' 
+    });
   } catch (error) {
     console.error('Error submitting review:', error);
-    return res.status(500).json({ success: false, error: 'Failed to submit review' });
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to submit review',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
-
 // Approve review (admin only)
 app.put('/api/reviews/:id/approve', loginRequiredApi, async (req, res) => {
   const { id } = req.params;
@@ -558,10 +548,13 @@ app.put('/api/reviews/:id/approve', loginRequiredApi, async (req, res) => {
     return res.json({ success: true, message: 'Review approved' });
   } catch (error) {
     console.error('Error approving review:', error);
-    return res.status(500).json({ success: false, error: 'Failed to approve review' });
+    return res.status(500).json({ 
+      success: false, 
+      error: 'Failed to approve review',
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
-
 // Archive old bookings
 async function archiveOldBookings() {
   try {
@@ -570,7 +563,8 @@ async function archiveOldBookings() {
     
     const result = await query(
       'SELECT * FROM bookings WHERE created_at < $1',
-      [threeMonthsAgo]
+      [threeMonthsAgo],
+      { queryName: 'get_old_bookings' }
     );
     
     const oldBookings = result.rows;
@@ -580,7 +574,7 @@ async function archiveOldBookings() {
       return 0;
     }
     
-    // Create archives directory
+    // Create archives directory if it doesn't exist
     const archivesDir = path.join(__dirname, 'archives');
     await fs.mkdir(archivesDir, { recursive: true });
     
@@ -637,7 +631,6 @@ async function archiveOldBookings() {
     throw error;
   }
 }
-
 // Manual archive trigger
 app.post('/api/archive-bookings', loginRequiredApi, async (req, res) => {
   try {
@@ -648,96 +641,157 @@ app.post('/api/archive-bookings', loginRequiredApi, async (req, res) => {
       archived_count: result || 0
     });
   } catch (error) {
-    return res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ 
+      success: false, 
+      error: error.message,
+      details: process.env.NODE_ENV === 'development' ? error.stack : undefined
+    });
   }
 });
-
 // Schedule archiving (runs daily at midnight)
 cron.schedule('0 0 * * *', () => {
-  archiveOldBookings();
+  console.log('Running scheduled archiving of old bookings...');
+  archiveOldBookings().catch(console.error);
 });
-
 // ========== ERROR HANDLERS ==========
+// 404 handler
 app.use((req, res) => {
-  res.status(404).json({ error: 'Route not found' });
+  res.status(404).json({ 
+    success: false,
+    error: 'Not Found',
+    message: `The requested resource ${req.originalUrl} was not found`
+  });
 });
-
+// Global error handler
 app.use((err, req, res, next) => {
-  console.error('Server error:', err);
-  res.status(500).json({ error: 'Internal server error' });
+  console.error('Unhandled error:', {
+    error: err.message,
+    stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+    path: req.path,
+    method: req.method,
+    timestamp: new Date().toISOString()
+  });
+  res.status(err.status || 500).json({
+    success: false,
+    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error',
+    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
 });
-
-// Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM signal received: closing HTTP server');
-  pool.end(() => {
-    console.log('PostgreSQL pool closed');
-    process.exit(0);
-  }); 
-});
-
-async function createGalleryTable() {
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS gallery (
-      id SERIAL PRIMARY KEY,
-      image_url TEXT NOT NULL,
-      caption TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-  `);
-  console.log("✅ Gallery table ready");
-}
-
 // ========== START SERVER ==========
 async function startServer() {
   try {
+    // Initialize database
     await initDb();
     
-    console.log("\n" + "=".repeat(50));
-    console.log("🎉 Royal Photowaala Backend Starting...");
-    console.log("🗄️  Database: PostgreSQL");
-    console.log("📸 Default Admin Credentials:");
-    console.log("   Username: admin");
-    console.log("   Password: admin123");
-    console.log("⚠️  CHANGE THESE IN PRODUCTION!");
-    console.log("📁 Archives folder: ./archives/");
-    console.log("=".repeat(50) + "\n");
+    // Initialize WhatsApp number
+    initWhatsAppNumber();
     
-    app.listen(PORT, '0.0.0.0', () => {
-      console.log(`✅ Server running on port ${PORT}`);
-      console.log(`🌐 Visit http://localhost:${PORT}`);
-      if (process.env.RENDER) {
-        console.log(`🚀 Deployed on Render`);
+    // Start the server
+    const server = app.listen(PORT, '0.0.0.0', () => {
+      console.log(`
+        ========================================
+        🚀 Royal Photowaala API is running
+        🌐 http://localhost:${PORT}
+        🕒 ${new Date().toLocaleString()}
+        ========================================
+        Environment: ${process.env.NODE_ENV || 'development'}
+        Node.js: ${process.version}
+        Platform: ${process.platform} ${process.arch}
+        ========================================
+      `);
+    });
+    // Handle server errors
+    server.on('error', (error) => {
+      if (error.syscall !== 'listen') {
+        throw error;
       }
-      if (process.env.DATABASE_URL) {
-        console.log(`🔗 Database: Connected to PostgreSQL`);
+      const bind = typeof PORT === 'string' ? 'Pipe ' + PORT : 'Port ' + PORT;
+      // Handle specific listen errors with friendly messages
+      switch (error.code) {
+        case 'EACCES':
+          console.error(bind + ' requires elevated privileges');
+          process.exit(1);
+          break;
+        case 'EADDRINUSE':
+          console.error(bind + ' is already in use');
+          process.exit(1);
+          break;
+        default:
+          throw error;
       }
     });
+    // Handle unhandled promise rejections
+    process.on('unhandledRejection', (reason, promise) => {
+      console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+      // Close server & exit process
+      server.close(() => process.exit(1));
+    });
+    // Handle uncaught exceptions
+    process.on('uncaughtException', (error) => {
+      console.error('Uncaught Exception:', error);
+      // Close server & exit process
+      server.close(() => process.exit(1));
+    });
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error('Failed to start server:', error);
     process.exit(1);
   }
 }
-
+// Initialize database schema
+async function initDb() {
+  try {
+    // Create tables if they don't exist
+    await query(`
+      CREATE TABLE IF NOT EXISTS admin_users (
+        id SERIAL PRIMARY KEY,
+        username VARCHAR(50) UNIQUE NOT NULL,
+        password_hash VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_login TIMESTAMP
+      )
+    `);
+    
+    await query(`
+      CREATE TABLE IF NOT EXISTS bookings (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        email VARCHAR(255) NOT NULL,
+        phone VARCHAR(20) NOT NULL,
+        package VARCHAR(255) NOT NULL,
+        date DATE NOT NULL,
+        details TEXT,
+        status VARCHAR(20) DEFAULT 'pending',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    await query(`
+      CREATE TABLE IF NOT EXISTS reviews (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL,
+        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        comment TEXT NOT NULL,
+        approved BOOLEAN DEFAULT false,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+    
+    // Create default admin user if it doesn't exist
+    const adminCheck = await query('SELECT * FROM admin_users WHERE username = $1', ['admin']);
+    if (adminCheck.rows.length === 0) {
+      const passwordHash = await bcrypt.hash('admin123', 10);
+      await query(
+        'INSERT INTO admin_users (username, password_hash) VALUES ($1, $2)',
+        ['admin', passwordHash]
+      );
+      console.log('✅ Created default admin user (admin/admin123)');
+    }
+    
+    console.log('✅ Database initialized successfully');
+  } catch (error) {
+    console.error('❌ Database initialization error:', error);
+    throw error;
+  }
+}
+// Start the server
 startServer();
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
