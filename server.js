@@ -539,7 +539,16 @@ cron.schedule('0 0 * * *', () => {
   archiveOldBookings().catch(console.error);
 });
 // ========== ERROR HANDLERS ==========
-// 404 handler
+// ✅ ROOT ROUTE — MUST BE FIRST
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'Royal Photowaala Backend is running 🚀',
+    status: 'OK'
+  });
+});
+
+// ❌ 404 handler — MUST BE AFTER ALL ROUTES
 app.use((req, res) => {
   res.status(404).json({ 
     success: false,
@@ -547,7 +556,8 @@ app.use((req, res) => {
     message: `The requested resource ${req.originalUrl} was not found`
   });
 });
-// Global error handler
+
+// ✅ Global error handler — ALWAYS LAST
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', {
     error: err.message,
@@ -558,10 +568,12 @@ app.use((err, req, res, next) => {
   });
   res.status(err.status || 500).json({
     success: false,
-    error: process.env.NODE_ENV === 'development' ? err.message : 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+    error: process.env.NODE_ENV === 'development'
+      ? err.message
+      : 'Internal Server Error'
   });
 });
+
 // ========== START SERVER ==========
 async function startServer() {
   try {
@@ -685,5 +697,6 @@ async function initDb() {
   
 // Start the server
 startServer();
+
 
 
