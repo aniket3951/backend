@@ -412,20 +412,51 @@ app.post('/api/book', async (req, res) => {
   }
 });
 
-  // Validate date  // ✅ END OF TRY BLOCK - Perfect booking logic
-  } catch (error)
+app.post('/api/book', async (req, res) => {
+  const { name, email, phone, package: pkg, date, details } = req.body || {};
 
-    // Format date nicely
+  const trimmedName = (name || '').trim();
+  const trimmedEmail = (email || '').trim();
+  const trimmedPhone = (phone || '').trim();
+  const trimmedPackage = (pkg || '').trim();
+  const trimmedDate = (date || '').trim();
+  const trimmedDetails = (details || '').trim();
+
+  if (!trimmedName || !trimmedPhone || !trimmedPackage || !trimmedDate) {
+    return res.status(400).json({ success: false, error: 'Name, phone, package, and date required' });
+  }
+
+  if (trimmedEmail && !validateEmail(trimmedEmail)) {
+    return res.status(400).json({ success: false, error: 'Invalid email format' });
+  }
+
+  if (!validatePhone(trimmedPhone)) {
+    return res.status(400).json({ success: false, error: 'Phone must be 10 digits' });
+  }
+
+  try {
+    // ✅ DB insert
+    const result = await query(
+      `INSERT INTO bookings (name, email, phone, package, date, details, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)
+       RETURNING id`,
+      [trimmedName, trimmedEmail, trimmedPhone, trimmedPackage, trimmedDate, trimmedDetails, 'pending']
+    );
+
+    const bookingId = result.rows[0].id;
+
+    // ✅ Format date nicely
     const eventDate = new Date(trimmedDate).toLocaleDateString('en-GB', {
       day: 'numeric',
       month: 'long',
       year: 'numeric'
     });
-    
+
     const packageDisplay = trimmedPackage.replace(' - ', ' - 📸 ');
     const cleanedDetails = trimmedDetails || 'No additional details provided';
-    
-    const msg = (
+
+    // ✅ WhatsApp message
+    const msg =
       "🌟 *NEW BOOKING REQUEST* 🌟\n\n" +
       `👤 *Name*: ${trimmedName}\n` +
       `📧 *Email*: ${trimmedEmail}\n` +
@@ -436,21 +467,20 @@ app.post('/api/book', async (req, res) => {
       `${cleanedDetails}\n\n` +
       "⏰ *Please respond within 24 hours*\n" +
       `✅ To confirm: Reply 'Confirm ${bookingId}'\n` +
-      `❌ To cancel: Reply 'Cancel ${bookingId}'`
-    );
-    
+      `❌ To cancel: Reply 'Cancel ${bookingId}'`;
+
     const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
-    
+
     if (!waLink) {
-      console.error(`❌ Failed to generate WhatsApp link for booking ID: ${bookingId}`);
       return res.status(500).json({ success: false, error: 'WhatsApp link generation failed' });
     }
-    
+
     return res.json({
       success: true,
       message: 'Booking request submitted successfully',
       wa_link: waLink
     });
+
   } catch (error) {
     console.error('❌ DB Insert Error:', error);
     return res.status(500).json({ success: false, error: 'Database error occurred' });
@@ -744,6 +774,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
