@@ -159,12 +159,12 @@ async function initDb() {
   initWhatsAppNumber();
   
   try {
-    // Create bookings table
+    // ✅ FIXED: bookings - email optional (nullable)
     await query(`
       CREATE TABLE IF NOT EXISTS bookings (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) NOT NULL,
+        email VARCHAR(255),  -- ✅ CHANGED: Removed NOT NULL
         phone VARCHAR(20) NOT NULL,
         package VARCHAR(255) NOT NULL,
         date DATE NOT NULL,
@@ -174,7 +174,7 @@ async function initDb() {
       )
     `);
     
-    // Create admin_users table
+    // ✅ admin_users (unchanged - perfect)
     await query(`
       CREATE TABLE IF NOT EXISTS admin_users (
         id SERIAL PRIMARY KEY,
@@ -183,20 +183,22 @@ async function initDb() {
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    // Create reviews table
+    
+    // ✅ FIXED: reviews - approved BOOLEAN (matches your code)
     await query(`
       CREATE TABLE IF NOT EXISTS reviews (
         id SERIAL PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
         comment TEXT NOT NULL,
-        approved INTEGER DEFAULT 0,
+        approved BOOLEAN DEFAULT FALSE,  -- ✅ CHANGED: BOOLEAN not INTEGER
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
+    
     await createGalleryTable();
     
-    // Create default admin user if it doesn't exist
+    // ✅ Default admin (unchanged - perfect)
     const adminCheck = await query('SELECT * FROM admin_users WHERE username = $1', ['admin']);
     if (adminCheck.rows.length === 0) {
       const passwordHash = await bcrypt.hash('admin123', 10);
@@ -214,18 +216,19 @@ async function initDb() {
   }
 }
 
-// ========== VALIDATION FUNCTIONS ==========
+// ========== VALIDATION FUNCTIONS (IMPROVED) ==========
 function validateEmail(email) {
+  if (!email) return true;  // ✅ Allow empty email
   const pattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
   return pattern.test(email);
 }
 
 function validatePhone(phone) {
-  const pattern = /^[0-9]{10}$/;
-  return pattern.test(phone);
+  const cleanPhone = phone.replace(/[^0-9]/g, '');  // Remove spaces/dashes
+  return cleanPhone.length === 10;
 }
 
-// ========== AUTHENTICATION MIDDLEWARE ==========
+// ========== AUTHENTICATION MIDDLEWARE (UNCHANGED - PERFECT) ==========
 function loginRequired(req, res, next) {
   if (req.session && req.session.logged_in) {
     return next();
@@ -719,6 +722,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
