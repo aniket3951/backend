@@ -21,18 +21,25 @@ const PORT = process.env.PORT || 5000;
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
   : [
-      "https://royalphotowaala-3zo7cdjzj-aniket-vitthal-kumbhars-projects.vercel.app/",
+      "https://royalphotowaala-3zo7cdjzj-aniket-vitthal-kumbhars-projects.vercel.app",
       "https://yourdomain.com"
     ];
 
+// ✅ STEP 1: Preflight OPTIONS FIRST (fixes "Failed to fetch")
+app.options("*", cors());
+
+// ✅ STEP 2: Main CORS middleware
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow non-browser requests (mobile apps, etc.)
     if (!origin) return callback(null, true);
 
     if (allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
 
+    // Log failed origins for debugging
+    console.log("❌ CORS blocked origin:", origin);
     return callback(new Error("Not allowed by CORS"));
   },
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
@@ -40,23 +47,21 @@ app.use(cors({
   credentials: true
 }));
 
-// VERY IMPORTANT: allow preflight
-app.options("*", cors());
-
+// ✅ STEP 3: Body parsers
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Session configuration
+// ✅ STEP 4: Session (Vercel ↔ Render cross-site FIXED)
 app.use(session({
   name: "royalphotowaala.sid",
   secret: process.env.SECRET_KEY || "fallback-secret-key-change-in-production",
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === "production",
+    secure: process.env.NODE_ENV === "production",  // HTTPS only in prod
     httpOnly: true,
-    sameSite: "none",      // REQUIRED for Vercel ↔ Render
-    maxAge: 2 * 60 * 60 * 1000
+    sameSite: "none",           // ✅ REQUIRED: Vercel ↔ Render
+    maxAge: 2 * 60 * 60 * 1000  // 2 hours
   }
 }));
 
@@ -714,6 +719,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
