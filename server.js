@@ -434,45 +434,38 @@ app.post('/api/book', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Phone must be 10 digits' });
   }
 
-  try {
-    // ✅ DB insert
-    const result = await query(
-      `INSERT INTO bookings (name, email, phone, package, date, details, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING id`,
-      [trimmedName, trimmedEmail, trimmedPhone, trimmedPackage, trimmedDate, trimmedDetails, 'pending']
-    );
+ try {
+  const result = await query(...);
 
-    const bookingId = result.rows[0].id;
+  const bookingId = result.rows[0].id;
 
-    // ✅ Format date nicely
-    const eventDate = new Date(trimmedDate).toLocaleDateString('en-GB', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
+  const eventDate = new Date(trimmedDate).toLocaleDateString('en-GB', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
 
-    const packageDisplay = trimmedPackage.replace(' - ', ' - 📸 ');
-    const cleanedDetails = trimmedDetails || 'No additional details provided';
+  const packageDisplay = trimmedPackage.replace(' - ', ' - 📸 ');
+  const cleanedDetails = trimmedDetails || 'No additional details provided';
 
-    // ✅ WhatsApp messageconst msg =
-  "🌟 *NEW BOOKING REQUEST* 🌟\n\n" +
-  "👤 *Name*: " + trimmedName + "\n" +
-  "📧 *Email*: " + (trimmedEmail || "N/A") + "\n" +
-  "📱 *Phone*: " + trimmedPhone + "\n" +
-  "📦 *Package*: " + packageDisplay + "\n" +
-  "📅 *Event Date*: " + eventDate + "\n\n" +
-  "📝 *Event Details*:\n" +
-  cleanedDetails + "\n\n" +
-  "⏰ Please respond within 24 hours\n" +
-  "Confirm: " + bookingId + "\n" +
-  "Cancel: " + bookingId;
+  const msg =
+    "🌟 *NEW BOOKING REQUEST* 🌟\n\n" +
+    "👤 *Name*: " + trimmedName + "\n" +
+    "📧 *Email*: " + (trimmedEmail || "N/A") + "\n" +
+    "📱 *Phone*: " + trimmedPhone + "\n" +
+    "📦 *Package*: " + packageDisplay + "\n" +
+    "📅 *Event Date*: " + eventDate + "\n\n" +
+    "📝 *Event Details*:\n" +
+    cleanedDetails;
 
-    const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
+  const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
 
-    if (!waLink) {
-      return res.status(500).json({ success: false, error: 'WhatsApp link generation failed' });
-    }
+  return res.json({ success: true, wa_link: waLink });
+
+} catch (error) {
+  console.error(error);
+  return res.status(500).json({ success: false });
+}
 
     return res.json({
       success: true,
@@ -773,6 +766,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
