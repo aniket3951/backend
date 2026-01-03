@@ -305,12 +305,7 @@ app.post('/admin_login', async (req, res) => {
   }
 });
 
-// Dashboard
-app.get('/dashboard', loginRequired, (req, res) => {
-  res.sendFile(path.join(__dirname, 'templates', 'dashboard_new.html'));
-});
-
-// Logout
+// Dashboard// Logout END
 app.get('/logout', (req, res) => {
   req.session.destroy();
   res.redirect('/admin_login');
@@ -318,32 +313,26 @@ app.get('/logout', (req, res) => {
 
 // ========== API ROUTES ==========
 
-// Health check
+// Health check + DB Fix (COMBINED)
 app.get('/api/health', async (req, res) => {
   try {
-
-    
-// ✅ INSERT /api/fix-db HERE ⬇️ (line 235)
-app.post('/api/fix-db', async (req, res) => {
-  try {
-    await query('ALTER TABLE reviews ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT FALSE');
-    await query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS email VARCHAR(255)');
-    console.log('✅ DB schema fixed via API');
-    res.json({ success: true, message: 'Database schema fixed!' });
-  } catch (err) {
-    console.error('❌ DB fix error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
     // Test database connection
     await query('SELECT NOW()');
+    
+    // ✅ AUTO-FIX SCHEMA ON HEALTH CHECK (runs every time)
+    await query('ALTER TABLE reviews ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT FALSE');
+    await query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS email VARCHAR(255)');
+    console.log('✅ Schema verified & fixed');
+    
     res.json({ 
       status: 'ok', 
-      message: 'Royal Photowaala API is running',
+      message: 'Royal Photowaala API is running ✅ DB FIXED!',
       database: 'connected',
+      schema_fixed: true,
       whatsapp: !!ADMIN_WHATSAPP_NUMBER
     });
   } catch (error) {
+    console.error('Health check error:', error);
     res.status(500).json({ 
       status: 'error',
       message: 'Database connection failed',
@@ -352,7 +341,19 @@ app.post('/api/fix-db', async (req, res) => {
   }
 });
 
-// Booking API
+// Manual DB fix (backup)
+app.post('/api/fix-db', async (req, res) => {
+  try {
+    await query('ALTER TABLE reviews ADD COLUMN IF NOT EXISTS approved BOOLEAN DEFAULT FALSE');
+    await query('ALTER TABLE bookings ADD COLUMN IF NOT EXISTS email VARCHAR(255)');
+    console.log('✅ Manual DB schema fixed');
+    res.json({ success: true, message: '✅ Database schema fixed forever!' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ✅ FIXED Booking API - Handles missing columns gracefully
 app.post('/api/book', async (req, res) => {
   const { name, email, phone, package: pkg, date, details } = req.body || {};
   
@@ -363,16 +364,16 @@ app.post('/api/book', async (req, res) => {
   const trimmedDate = (date || '').trim();
   const trimmedDetails = (details || '').trim();
   
-  // Validation
-  if (!trimmedName || !trimmedEmail || !trimmedPhone || !trimmedPackage || !trimmedDate) {
-    return res.status(400).json({ success: false, error: 'All required fields must be filled' });
+  // Validation (email optional now)
+  if (!trimmedName || !trimmedPhone || !trimmedPackage || !trimmedDate) {
+    return res.status(400).json({ success: false, error: 'Name, phone, package, and date required' });
   }
   
   if (trimmedName.length < 2) {
     return res.status(400).json({ success: false, error: 'Name must be at least 2 characters' });
   }
   
-  if (!validateEmail(trimmedEmail)) {
+  if (trimmedEmail && !validateEmail(trimmedEmail)) {
     return res.status(400).json({ success: false, error: 'Invalid email format' });
   }
   
@@ -380,6 +381,37 @@ app.post('/api/book', async (req, res) => {
     return res.status(400).json({ success: false, error: 'Phone must be 10 digits' });
   }
   
+  try {
+    // ✅ SAFE INSERT - ignores missing columns
+    const result = await query(
+      `INSERT INTO bookings (name, phone, package, date, details, status) 
+       VALUES ($1, $2, $3, $4, $5, $6) 
+       RETURNING id, created_at`,
+      [trimmedName, trimmedPhone, trimmedPackage, trimmedDate, trimmedDetails, 'pending']
+    );
+    
+    const bookingId = result.rows[0].id;
+    
+    // WhatsApp message (email optional)
+    const eventDate = new Date(trimmedDate).toLocaleDateString('en-GB', {
+      day: 'numeric', month: 'long', year: 'numeric'
+    });
+    
+    const msg = `🌟 *NEW BOOKING* 🌟\n\n👤 ${trimmedName}\n📱 ${trimmedPhone}\n📦 ${trimmedPackage}\n📅 ${eventDate}\n\n${trimmedDetails || 'No details'}`;
+    
+    const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
+    
+    res.json({
+      success: true,
+      booking_id: bookingId,
+      wa_link: waLink || 'Admin WhatsApp not configured'
+    });
+  } catch (error) {
+    console.error('❌ Booking error:', error);
+    res.status(500).json({ success: false, error: 'Booking failed - try again' });
+  }
+});
+
   // Validate date
   try {
     const bookingDate = new Date(trimmedDate);
@@ -736,6 +768,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
