@@ -625,6 +625,7 @@ async function startServer() {
 // Initialize database schema
 async function initDb() {
   try {
+    // Create tables
     await query(`
       CREATE TABLE IF NOT EXISTS admin_users (
         id SERIAL PRIMARY KEY,
@@ -637,13 +638,13 @@ async function initDb() {
     await query(`
       CREATE TABLE IF NOT EXISTS bookings (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(255),
+        name VARCHAR(255) NOT NULL,
         email VARCHAR(255),
-        phone VARCHAR(20),
-        package VARCHAR(255),
-        date DATE,
+        phone VARCHAR(20) NOT NULL,
+        package VARCHAR(255) NOT NULL,
+        date DATE NOT NULL,
         details TEXT,
-        status VARCHAR(20),
+        status VARCHAR(20) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -651,36 +652,20 @@ async function initDb() {
     await query(`
       CREATE TABLE IF NOT EXISTS reviews (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(255),
-        rating INT,
-        comment TEXT,
+        name VARCHAR(255) NOT NULL,
+        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
+        comment TEXT NOT NULL,
         approved BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
+    // ✅ DEFAULT ADMIN CREATION — NOW CORRECT
     const adminCheck = await query(
-      'SELECT * FROM admin_users WHERE username=$1',
+      'SELECT * FROM admin_users WHERE username = $1',
       ['admin']
     );
 
-    if (adminCheck.rows.length === 0) {
-      const hash = await bcrypt.hash('admin123', 10);
-      await query(
-        'INSERT INTO admin_users (username, password_hash) VALUES ($1,$2)',
-        ['admin', hash]
-      );
-    }
-
-    console.log('✅ Database initialized');
-  } catch (err) {
-    console.error('❌ DB init error:', err);
-    throw err;
-  }
-}
-
-    // Create default admin user if it doesn't exist
-    const adminCheck = await query('SELECT * FROM admin_users WHERE username = $1', ['admin']);
     if (adminCheck.rows.length === 0) {
       const passwordHash = await bcrypt.hash('admin123', 10);
       await query(
@@ -689,13 +674,16 @@ async function initDb() {
       );
       console.log('✅ Created default admin user (admin/admin123)');
     }
-    
+
     console.log('✅ Database initialized successfully');
   } catch (error) {
     console.error('❌ Database initialization error:', error);
     throw error;
   }
 }
+
+  
 // Start the server
 startServer();
+
 
