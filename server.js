@@ -455,19 +455,18 @@ app.post('/api/book', async (req, res) => {
     const packageDisplay = trimmedPackage.replace(' - ', ' - 📸 ');
     const cleanedDetails = trimmedDetails || 'No additional details provided';
 
-    // ✅ WhatsApp message
-    const msg =
-      "🌟 *NEW BOOKING REQUEST* 🌟\n\n" +
-      `👤 *Name*: ${trimmedName}\n` +
-      `📧 *Email*: ${trimmedEmail}\n` +
-      `📱 *Phone*: ${trimmedPhone}\n` +
-      `📦 *Package*: ${packageDisplay}\n` +
-      `📅 *Event Date*: ${eventDate}\n\n` +
-      "📝 *Event Details*:\n" +
-      `${cleanedDetails}\n\n` +
-      "⏰ *Please respond within 24 hours*\n" +
-      `✅ To confirm: Reply 'Confirm ${bookingId}'\n` +
-      `❌ To cancel: Reply 'Cancel ${bookingId}'`;
+    // ✅ WhatsApp messageconst msg =
+  "🌟 *NEW BOOKING REQUEST* 🌟\n\n" +
+  "👤 *Name*: " + trimmedName + "\n" +
+  "📧 *Email*: " + (trimmedEmail || "N/A") + "\n" +
+  "📱 *Phone*: " + trimmedPhone + "\n" +
+  "📦 *Package*: " + packageDisplay + "\n" +
+  "📅 *Event Date*: " + eventDate + "\n\n" +
+  "📝 *Event Details*:\n" +
+  cleanedDetails + "\n\n" +
+  "⏰ Please respond within 24 hours\n" +
+  "Confirm: " + bookingId + "\n" +
+  "Cancel: " + bookingId;
 
     const waLink = buildWhatsAppLink(ADMIN_WHATSAPP_NUMBER, msg);
 
@@ -774,6 +773,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
