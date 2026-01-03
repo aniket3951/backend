@@ -1,11 +1,8 @@
 /**
  * Royal Photowaala - Express.js Backend Server
  * PostgreSQL Database Backend
- * 
- * @version 2.0.0
- * @license MIT
  */
-// ========== IMPORTS & CONFIGURATION ==========
+
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -16,51 +13,22 @@ const { Pool } = require('pg');
 const cron = require('node-cron');
 const ExcelJS = require('exceljs');
 const fs = require('fs').promises;
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const mongoSanitize = require('express-mongo-sanitize');
-const xss = require('xss-clean');
-const hpp = require('hpp');
-const compression = require('compression');
-const morgan = require('morgan');
-const { body, validationResult } = require('express-validator');
-const app = express();
+
+const app = express(); // ✅ FIX 1: app created
 const PORT = process.env.PORT || 5000;
-// ========== GLOBAL MIDDLEWARE ==========
-// Set security HTTP headers
-app.use(helmet());
-// Development logging
-if (process.env.NODE_ENV === 'development') {
-  app.use(morgan('dev'));
-}
-// Limit requests from same IP
-const limiter = rateLimit({
-  max: 100, // 100 requests per windowMs
-  windowMs: 60 * 60 * 1000, // 1 hour
-  message: 'Too many requests from this IP, please try again in an hour!'
-});
-app.use('/api', limiter);
-// Body parser, reading data from body into req.body
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true, limit: '10kb' }));
-// Data sanitization against NoSQL query injection
-app.use(mongoSanitize());
-// Data sanitization against XSS
-app.use(xss());
-// Prevent parameter pollution
-app.use(hpp({
-  whitelist: ['duration', 'ratingsQuantity', 'ratingsAverage', 'maxGroupSize', 'difficulty', 'price']
-}));
-// Enable CORS with proper configuration
+
+/* ================= BASIC MIDDLEWARE ================= */
 app.use(cors({
-  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: process.env.ALLOWED_ORIGINS
+    ? process.env.ALLOWED_ORIGINS.split(',')
+    : '*',
+  credentials: true
 }));
-// Compress all responses
-app.use(compression());
-// Session configuration
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+/* ================= SESSION CONFIG ================= */
 const sessionConfig = {
   secret: process.env.SECRET_KEY || 'fallback-secret-key-change-in-production',
   resave: false,
@@ -69,166 +37,83 @@ const sessionConfig = {
   cookie: {
     secure: process.env.NODE_ENV === 'production',
     httpOnly: true,
-    sameSite: 'strict',
-    maxAge: 2 * 60 * 60 * 1000, // 2 hours
-    domain: process.env.COOKIE_DOMAIN || undefined,
-    path: '/'
-  },
-  rolling: true,
-  unset: 'destroy'
+    sameSite: 'lax',
+    maxAge: 2 * 60 * 60 * 1000 // 2 hours
+  }
 };
-// Trust first proxy if behind one (e.g., Nginx, Heroku)
+
+// ✅ FIX 2: trust proxy ONLY after app exists
 if (process.env.NODE_ENV === 'production') {
   app.set('trust proxy', 1);
   sessionConfig.cookie.secure = true;
   sessionConfig.cookie.sameSite = 'none';
 }
+
 app.use(session(sessionConfig));
-// ========== DATABASE CONFIGURATION ==========
-// Validate required environment variables
+
+/* ================= ENV VALIDATION ================= */
 const requiredEnvVars = ['DATABASE_URL', 'SECRET_KEY'];
-const missingEnvVars = requiredEnvVars.filter(env => !process.env[env]);
+const missingEnvVars = requiredEnvVars.filter(v => !process.env[v]);
+
 if (missingEnvVars.length > 0) {
-  console.error('❌ ERROR: Missing required environment variables:');
-  missingEnvVars.forEach(env => console.error(`   - ${env}`));
+  console.error('❌ Missing environment variables:');
+  missingEnvVars.forEach(v => console.error(' -', v));
   process.exit(1);
 }
-// Create PostgreSQL connection pool with enhanced configuration
+
+/* ================= DATABASE ================= */
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: process.env.NODE_ENV === 'production' ? { 
-    rejectUnauthorized: process.env.DB_REJECT_UNAUTHORIZED !== 'false'
-  } : false,
-  max: process.env.DB_MAX_CONNECTIONS || 20,
-  idleTimeoutMillis: process.env.DB_IDLE_TIMEOUT_MS || 30000,
-  connectionTimeoutMillis: process.env.DB_CONNECTION_TIMEOUT_MS || 2000,
-  statement_timeout: process.env.DB_STATEMENT_TIMEOUT_MS || 10000,
-  query_timeout: process.env.DB_QUERY_TIMEOUT_MS || 15000,
-  application_name: 'royal-photowaala-api',
-  maxUses: 7500,
-  allowExitOnIdle: true
+  ssl: process.env.NODE_ENV === 'production'
+    ? { rejectUnauthorized: false }
+    : false,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000
 });
-// Database connection event handlers
+
 pool.on('connect', () => {
-  if (process.env.NODE_ENV !== 'test') {
-    console.log('✅ Connected to PostgreSQL database');
-  }
+  console.log('✅ Connected to PostgreSQL');
 });
+
 pool.on('error', (err) => {
-  console.error('❌ Unexpected PostgreSQL error:', err);
-  if (process.env.NODE_ENV === 'production') {
-    console.error('Database connection error. Attempting to reconnect...');
-  } else {
-    process.exit(-1);
-  }
+  console.error('❌ PostgreSQL error:', err);
+  process.exit(1);
 });
-// Graceful shutdown handler
-process.on('SIGTERM', async () => {
-  console.log('SIGTERM received. Closing database connections...');
-  await pool.end();
-  console.log('Database connections closed.');
-  process.exit(0);
-});
-// ========== HELPER FUNCTIONS ==========
-/**
- * Executes a database query with error handling and logging
- */
-async function query(text, params, { queryName = 'unnamed' } = {}) {
+
+async function query(text, params = []) {
   const start = Date.now();
-  const client = await pool.connect();
-  
-  try {
-    const res = await client.query({
-      text,
-      values: params,
-      name: queryName,
-      rowMode: 'array',
-      types: {
-        getTypeParser: () => (val) => val
-      }
-    });
-    
-    const duration = Date.now() - start;
-    
-    if (duration > 200) {
-      console.warn(`⚠️  Slow query (${duration}ms): ${text.substring(0, 100)}...`);
-    }
-    
-    if (process.env.NODE_ENV === 'development') {
-      console.debug(`📊 Query '${queryName}' executed in ${duration}ms`);
-    }
-    
-    return res;
-  } catch (error) {
-    console.error('❌ Database query error:', {
-      query: text,
-      params,
-      error: error.message,
-      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
-    });
-    
-    if (error.code) {
-      switch (error.code) {
-        case '23505': throw new Error('A record with these details already exists');
-        case '23503': throw new Error('Referenced record not found');
-        case '23502': throw new Error('Required field missing');
-        default: throw error;
-      }
-    }
-    
-    throw error;
-  } finally {
-    client.release();
-  }
+  const res = await pool.query(text, params);
+  console.log('DB query', { text, duration: Date.now() - start });
+  return res;
 }
-// ========== WHATSAPP HELPER FUNCTIONS ==========
+
+/* ================= WHATSAPP HELPERS ================= */
 let ADMIN_WHATSAPP_NUMBER = null;
-function normalizeAdminWhatsAppNumber(number, defaultCountry = '91') {
-  if (!number) return null;
-  const digits = String(number).replace(/\D/g, '');
-  if (digits.length === 10) {
-    return defaultCountry + digits;
-  }
-  return digits.length >= 10 ? digits : null;
+
+function normalizeAdminWhatsAppNumber(num, country = '91') {
+  if (!num) return null;
+  const d = String(num).replace(/\D/g, '');
+  return d.length === 10 ? country + d : d;
 }
+
 function initWhatsAppNumber() {
-  const number = process.env.ADMIN_WHATSAPP_NUMBER || '8149003738';
-  ADMIN_WHATSAPP_NUMBER = normalizeAdminWhatsAppNumber(number);
-  if (!ADMIN_WHATSAPP_NUMBER) {
-    console.error(`❌ Invalid ADMIN_WHATSAPP_NUMBER: ${number}`);
-  } else {
-    console.log(`✅ Admin WhatsApp number initialized: ${ADMIN_WHATSAPP_NUMBER}`);
-  }
+  ADMIN_WHATSAPP_NUMBER = normalizeAdminWhatsAppNumber(
+    process.env.ADMIN_WHATSAPP_NUMBER || '8149003738'
+  );
 }
-function buildWhatsAppLink(targetNumber, message) {
-  try {
-    const target = normalizeAdminWhatsAppNumber(targetNumber) || ADMIN_WHATSAPP_NUMBER;
-    if (!target || target.length < 10) {
-      console.error(`❌ Invalid phone number: ${targetNumber}`);
-      return null;
-    }
-    
-    const cleanedMessage = String(message).split(/\s+/).join(' ');
-    const encodedMessage = encodeURIComponent(cleanedMessage);
-    return `https://wa.me/${target}?text=${encodedMessage}`;
-  } catch (error) {
-    console.error(`❌ Error building WhatsApp link: ${error.message}`);
-    return null;
-  }
-}
-// ========== AUTHENTICATION MIDDLEWARE ==========
+
+/* ================= AUTH MIDDLEWARE ================= */
 function loginRequired(req, res, next) {
-  if (req.session && req.session.logged_in) {
-    return next();
-  }
-  return res.redirect('/admin_login');
+  if (req.session?.logged_in) return next();
+  res.redirect('/admin_login');
 }
+
 function loginRequiredApi(req, res, next) {
-  if (req.session && req.session.logged_in) {
-    return next();
-  }
-  return res.status(401).json({ success: false, error: 'Authentication required' });
+  if (req.session?.logged_in) return next();
+  res.status(401).json({ success: false, error: 'Auth required' });
 }
+
 // ========== ROUTES ==========
 // Serve static files
 app.use(express.static(path.join(__dirname, 'frontend')));
@@ -740,42 +625,60 @@ async function startServer() {
 // Initialize database schema
 async function initDb() {
   try {
-    // Create tables if they don't exist
     await query(`
       CREATE TABLE IF NOT EXISTS admin_users (
         id SERIAL PRIMARY KEY,
         username VARCHAR(50) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        last_login TIMESTAMP
-      )
-    `);
-    
-    await query(`
-      CREATE TABLE IF NOT EXISTS bookings (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) NOT NULL,
-        phone VARCHAR(20) NOT NULL,
-        package VARCHAR(255) NOT NULL,
-        date DATE NOT NULL,
-        details TEXT,
-        status VARCHAR(20) DEFAULT 'pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
+    await query(`
+      CREATE TABLE IF NOT EXISTS bookings (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255),
+        email VARCHAR(255),
+        phone VARCHAR(20),
+        package VARCHAR(255),
+        date DATE,
+        details TEXT,
+        status VARCHAR(20),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
     await query(`
       CREATE TABLE IF NOT EXISTS reviews (
         id SERIAL PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        rating INTEGER NOT NULL CHECK (rating BETWEEN 1 AND 5),
-        comment TEXT NOT NULL,
+        name VARCHAR(255),
+        rating INT,
+        comment TEXT,
         approved BOOLEAN DEFAULT false,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
-    
+
+    const adminCheck = await query(
+      'SELECT * FROM admin_users WHERE username=$1',
+      ['admin']
+    );
+
+    if (adminCheck.rows.length === 0) {
+      const hash = await bcrypt.hash('admin123', 10);
+      await query(
+        'INSERT INTO admin_users (username, password_hash) VALUES ($1,$2)',
+        ['admin', hash]
+      );
+    }
+
+    console.log('✅ Database initialized');
+  } catch (err) {
+    console.error('❌ DB init error:', err);
+    throw err;
+  }
+}
+
     // Create default admin user if it doesn't exist
     const adminCheck = await query('SELECT * FROM admin_users WHERE username = $1', ['admin']);
     if (adminCheck.rows.length === 0) {
@@ -795,3 +698,4 @@ async function initDb() {
 }
 // Start the server
 startServer();
+
