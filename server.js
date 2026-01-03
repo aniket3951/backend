@@ -354,7 +354,7 @@ app.post('/api/fix-db', async (req, res) => {
 });
 
 // ✅ FIXED Booking API - Handles missing columns gracefully
-app.post('/api/book', async (req, res) => {  ✅ Line 360
+app.post('/api/book', async (req, res) => {  
   const { name, email, phone, package: pkg, date, details } = req.body || {};
   
   const trimmedName = (name || '').trim();
@@ -744,6 +744,7 @@ async function startServer() {
 }
 
 startServer();
+
 
 
 
