@@ -88,20 +88,34 @@ async function query(text, params = []) {
   return res;
 }
 
-/* ================= WHATSAPP HELPERS ================= */
-let ADMIN_WHATSAPP_NUMBER = null;
+/* ================= WHATSAPP HELPERS (FROM FLASK LOGIC) ================= */
+const querystring = require('querystring');
 
-function normalizeAdminWhatsAppNumber(num, country = '91') {
-  if (!num) return null;
-  const d = String(num).replace(/\D/g, '');
-  return d.length === 10 ? country + d : d;
+function normalizePhone(number, country = '91') {
+  if (!number) return null;
+  const num = String(number).replace(/\D/g, '');
+
+  if (num.length === 10) return country + num;
+  if (num.length >= 11 && num.startsWith(country)) return num;
+
+  return null;
 }
 
-function initWhatsAppNumber() {
-  ADMIN_WHATSAPP_NUMBER = normalizeAdminWhatsAppNumber(
-    process.env.ADMIN_WHATSAPP_NUMBER || '8149003738'
-  );
+function buildWhatsAppLink(number, message) {
+  if (!number) {
+    console.error('❌ No admin WhatsApp number');
+    return null;
+  }
+  const encoded = querystring.escape(message);
+  return `https://wa.me/${number}?text=${encoded}`;
 }
+
+/* ADMIN WHATSAPP NUMBER */
+let ADMIN_WHATSAPP_NUMBER = normalizePhone(
+  process.env.ADMIN_WHATSAPP_NUMBER || '8149003738'
+);
+
+console.log('✅ WhatsApp Admin:', ADMIN_WHATSAPP_NUMBER);
 
 /* ================= AUTH MIDDLEWARE ================= */
 function loginRequired(req, res, next) {
@@ -697,6 +711,7 @@ async function initDb() {
   
 // Start the server
 startServer();
+
 
 
 
