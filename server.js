@@ -593,9 +593,7 @@ async function startServer() {
   try {
     // Initialize database
     await initDb();
-    
-    // Initialize WhatsApp number
-    initWhatsAppNumber();
+  
     
     // Start the server
     const server = app.listen(PORT, '0.0.0.0', () => {
@@ -711,6 +709,7 @@ async function initDb() {
   
 // Start the server
 startServer();
+
 
 
 
